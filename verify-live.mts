@@ -59,7 +59,7 @@ async function main() {
     name: "Cuan Token",
     symbol: "CUAN",
     metadataURI: "ipfs://example/cuan-metadata.json",
-    configId: 7n,
+    configId: 1n, // #1 is the current default create Config (#7/#8/#9 disabled on-chain)
   });
   console.log(`to=${preview.to} value=${preview.value} dataBytes=${preview.data.length / 2 - 1} configHash=${preview.configHash.slice(0, 18)}… decimals=${preview.tokenDecimals}`);
 

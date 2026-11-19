@@ -12,6 +12,7 @@ import {
   parseAmount,
   planDbcSwap,
   planPoolSwap,
+  readCurveState,
   shortAddress,
   type Address,
 } from "../lib/ammora";
@@ -58,6 +59,9 @@ export default function SwapBox({ wallet }: { wallet: WalletState }) {
   const [swapping, setSwapping] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [txs, setTxs] = useState<{ label: string; hash: string }[]>([]);
+  // WETH reserve held by the bonding curve (dbc pairs only). A sell needs
+  // this reserve to pay out — when it is 0, selling has no route yet.
+  const [curveReserve, setCurveReserve] = useState<bigint | null>(null);
 
   const pair: KnownPair | null = useMemo(
     () => KNOWN_PAIRS.find((p) => p.id === pairId) ?? null,
@@ -73,6 +77,26 @@ export default function SwapBox({ wallet }: { wallet: WalletState }) {
   useEffect(() => {
     setQuote(null);
   }, [pairId, direction, amount, slippageBps, customPool, customModel]);
+
+  // For bonding-curve pairs, show how much WETH the curve holds. Selling
+  // pays out of this reserve, so a 0 reserve means selling has no route yet.
+  useEffect(() => {
+    if (model !== "dbc" || !pool) {
+      setCurveReserve(null);
+      return;
+    }
+    let cancelled = false;
+    readCurveState(getPublicClient(), pool as Address)
+      .then((s) => {
+        if (!cancelled) setCurveReserve(s.quoteReserve);
+      })
+      .catch(() => {
+        if (!cancelled) setCurveReserve(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [model, pool]);
 
   const flip = useCallback(() => setDirection((d) => (d === "ab" ? "ba" : "ab")), []);
 
@@ -109,11 +133,19 @@ export default function SwapBox({ wallet }: { wallet: WalletState }) {
       });
       setQuote(q);
     } catch (e) {
-      setError(`No route / quote failed: ${e instanceof Error ? e.message : String(e)}`);
+      const msg = e instanceof Error ? e.message : String(e);
+      const isSell = direction === "ba";
+      if (isSell && model === "dbc" && curveReserve !== null && curveReserve === 0n) {
+        setError(
+          `Belum bisa jual ${inTok.symbol} — curve ini belum ada cadangan WETH (0 WETH), jadi tidak ada yang membayar penjual. Beli ${inTok.symbol} dulu dengan WETH untuk mengisi cadangan, baru jual balik bisa.`,
+        );
+      } else {
+        setError(`No route / quote failed: ${msg}`);
+      }
     } finally {
       setQuoting(false);
     }
-  }, [pair, pool, model, direction, amount, slippageBps, wallet.address]);
+  }, [pair, pool, model, direction, amount, slippageBps, wallet.address, curveReserve]);
 
   const swap = useCallback(async () => {
     setError(null);
@@ -246,6 +278,15 @@ export default function SwapBox({ wallet }: { wallet: WalletState }) {
             Custom
           </button>
         </div>
+
+        {model === "dbc" && curveReserve !== null && (
+          <p className="swap-note" style={{ margin: "2px 0 0" }}>
+            Curve reserve: <b>{fmtUnits(curveReserve, 18)} WETH</b>
+            {curveReserve === 0n
+              ? " — selling is not possible yet; buy first to seed the reserve."
+              : ""}
+          </p>
+        )}
 
         {useCustom && (
           <div className="custom-panel">
