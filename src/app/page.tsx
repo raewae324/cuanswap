@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
-import { getChainStatus, getPublicClient, CHAIN_ID, RPC_URL, EXPLORER_URL, SDK_VERSION, SLOT } from "../lib/ammora";
+import { getChainStatus, getPublicClient, CHAIN_ID, SDK_VERSION } from "../lib/ammora";
 import type { WalletState } from "../components/WalletConnect";
 
 // The SDK components touch window.ethereum and the browser transport —
@@ -41,49 +41,74 @@ export default function Home() {
   }, [loadChain]);
 
   return (
-    <main>
-      <header>
-        <h1>CuanSwap</h1>
-        <p>
-          Minimal demo exchange / launchpad, built with the Ammora SDK {SDK_VERSION} (auto-route · V4 · concentrated
-          graduation). Test ETH only — $0 value · no mainnet.
-        </p>
-        <p className="dim small">
-          Docs: ammora-docs.vercel.app/guides/partner-quickstart + /guides/launchpad · SDK @ammora-protocol/sdk@
-          {SDK_VERSION} · RPC {RPC_URL} · Explorer {EXPLORER_URL}
-        </p>
-        <p className="dim small">
-          Chain {CHAIN_ID} (GIWA Sepolia) · slot {SLOT}
-        </p>
+    <>
+      <header className="topnav">
+        <div className="topnav-inner">
+          <div className="logo">
+            <span className="logo-mark">C</span>
+            <span className="logo-name">CuanSwap</span>
+            <span className="logo-tag">Testnet</span>
+          </div>
+          <nav className="nav-links">
+            <a href="#swap">Swap</a>
+            <a href="#launchpad">Launchpad</a>
+            <a href="#tokens">Tokens</a>
+          </nav>
+          <div className="nav-spacer" />
+          <button
+            className="chain-pill"
+            onClick={loadChain}
+            title={chainError ?? "GIWA Sepolia — click to refresh block height"}
+          >
+            <span className={`chain-dot${chainError ? " err" : ""}`} />
+            <span className="chain-label">GIWA Sepolia</span>
+            <span>
+              {chainStatus ? `#${chainStatus.blockNumber.toString()}` : chainError ? "offline" : "…"}
+            </span>
+          </button>
+          <WalletConnect wallet={wallet} onChange={setWallet} variant="header" />
+        </div>
       </header>
 
-      <section className="card">
-        <h2>Live chain status <span className="dim">(read-only)</span></h2>
-        {chainStatus ? (
-          <p>
-            Chain ID: <b>{chainStatus.chainId}</b> · head block: <b>{chainStatus.blockNumber.toString()}</b> ·
-            finalized head: <b>{chainStatus.finalizedHead.toString()}</b>{" "}
-            <button onClick={loadChain}>Refresh</button>
+      <main>
+        <div className="hero" id="swap">
+          <h1 className="hero-title">Swap on GIWA Sepolia</h1>
+          <p className="hero-sub">
+            Exchange &amp; launchpad powered by the Ammora SDK {SDK_VERSION}. Testnet only — tokens have no value.
           </p>
-        ) : chainError ? (
-          <p className="err">{chainError}</p>
-        ) : (
-          <p>Loading live chain status…</p>
-        )}
-      </section>
+          <SwapBox wallet={wallet} />
+          <WalletConnect wallet={wallet} onChange={setWallet} variant="panel" />
+        </div>
 
-      <WalletConnect wallet={wallet} onChange={setWallet} />
-      <SwapBox wallet={wallet} />
-      <Launchpad wallet={wallet} />
-      <TokenList />
+        <div className="sections">
+          <section className="section" id="launchpad">
+            <div className="section-head">
+              <h2>Launchpad</h2>
+              <p>
+                Create a token on a bonding curve, trade it, and graduate it to a concentrated pool — all on the
+                Ammora SDK. Chain {CHAIN_ID} (GIWA Sepolia).
+              </p>
+            </div>
+            <Launchpad wallet={wallet} />
+          </section>
 
-      <footer>
-        <p className="dim small">
-          CuanSwap is a testnet demo for the Ammora Season 2 builder mission. Built with the Ammora SDK on GIWA
-          Sepolia. Nothing here is financial advice; testnet tokens have no value. The app never holds a private key
-          — every transaction is signed by you in your own wallet.
-        </p>
-      </footer>
-    </main>
+          <section className="section" id="tokens">
+            <div className="section-head">
+              <h2>Tokens</h2>
+              <p>Recently launched tokens, read live from the launch factory.</p>
+            </div>
+            <TokenList />
+          </section>
+        </div>
+
+        <footer>
+          <p>
+            CuanSwap is a testnet demo for the Ammora Season 2 builder mission. Built with the Ammora SDK on GIWA
+            Sepolia. Nothing here is financial advice; testnet tokens have no value. The app never holds a private
+            key — every transaction is signed by you in your own wallet.
+          </p>
+        </footer>
+      </main>
+    </>
   );
 }

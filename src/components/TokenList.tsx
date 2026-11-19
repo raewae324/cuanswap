@@ -4,7 +4,6 @@ import { useCallback, useState } from "react";
 import {
   discoverLaunches,
   explorerAddress,
-  fmtUnits,
   getPublicClient,
   getTokenMeta,
   shortAddress,
@@ -46,59 +45,62 @@ export default function TokenList() {
   }, []);
 
   return (
-    <section className="card">
-      <h2>4 · Token discovery — recent launches</h2>
-      <p className="dim small">
+    <div>
+      <p className="dim" style={{ fontSize: 14, margin: "0 0 14px" }}>
         Reads <code>LaunchCreated</code> events from the launch factory (last 100,000 blocks, 10k-block chunks — the
         public RPC&apos;s limit), then reads each token&apos;s name / symbol / decimals from chain.
       </p>
-      <div className="row">
-        <button onClick={load} disabled={loading}>
+      <div className="row" style={{ margin: "0 0 14px" }}>
+        <button className="btn" onClick={load} disabled={loading}>
           {loading ? "Scanning…" : "Scan recent launches"}
         </button>
         {scanned && <span className="dim small">{scanned}</span>}
       </div>
-      {error && <p className="err">{error}</p>}
+      {error && <div className="callout callout-err">{error}</div>}
       {rows.length > 0 && (
-        <table>
-          <thead>
-            <tr>
-              <th>Token</th>
-              <th>Symbol</th>
-              <th>Curve</th>
-              <th>Config</th>
-              <th>Block</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.token}>
-                <td>
-                  <a href={explorerAddress(r.token)} target="_blank" rel="noreferrer">
-                    {shortAddress(r.token)}
-                  </a>
-                </td>
-                <td>
-                  {r.symbol} <span className="dim small">({r.name})</span>
-                </td>
-                <td>
-                  <a href={explorerAddress(r.curve)} target="_blank" rel="noreferrer">
-                    {shortAddress(r.curve)}
-                  </a>
-                </td>
-                <td>
-                  #{r.configId.toString()}
-                  {r.configId === 6n ? " ⛔" : ""}
-                </td>
-                <td>{r.block.toString()}</td>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Token</th>
+                <th>Symbol</th>
+                <th>Curve</th>
+                <th>Config</th>
+                <th>Block</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.token}>
+                  <td>
+                    <a href={explorerAddress(r.token)} target="_blank" rel="noreferrer">
+                      {shortAddress(r.token)}
+                    </a>
+                  </td>
+                  <td>
+                    <b>{r.symbol}</b> <span className="dim small">({r.name})</span>
+                  </td>
+                  <td>
+                    <a href={explorerAddress(r.curve)} target="_blank" rel="noreferrer">
+                      {shortAddress(r.curve)}
+                    </a>
+                  </td>
+                  <td>
+                    #{r.configId.toString()}
+                    {r.configId === 6n && (
+                      <span className="badge badge-warn" style={{ marginLeft: 8 }}>Blocked</span>
+                    )}
+                  </td>
+                  <td>{r.block.toString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
-      <p className="dim small">
-        Config #6 rows are marked ⛔ — that Config is blocked for new launches (graduation bug).
+      <p className="dim small" style={{ marginTop: 12 }}>
+        Config #6 rows are marked Blocked — that Config is blocked for new launches (graduation bug).
       </p>
-    </section>
+    </div>
   );
 }

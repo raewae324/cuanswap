@@ -1,15 +1,14 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   CHAIN_ID,
   GIWA_SEPOLIA,
   explorerTx,
   fmtUnits,
   getPublicClient,
-  getRouteQuote,
-  getTokenBalance,
   getWalletClient,
+  getRouteQuote,
   parseAmount,
   planDbcSwap,
   planPoolSwap,
@@ -22,6 +21,30 @@ import { encodeFunctionData, erc20Abi } from "viem";
 import type { WalletState } from "./WalletConnect";
 
 const ZERO: Address = "0x0000000000000000000000000000000000000000";
+
+const SLIPPAGE_PRESETS = [10, 50, 100];
+
+function tokenIconClass(symbol: string): string {
+  if (symbol === "WETH") return "weth";
+  if (symbol === "ATT") return "att";
+  if (symbol === "LODOS") return "lodos";
+  return "generic";
+}
+
+function tokenGlyph(symbol: string): string {
+  if (symbol === "WETH") return "Ξ";
+  return symbol.slice(0, 1);
+}
+
+function fmtRate(out: string, amountIn: string): string {
+  const a = parseFloat(amountIn);
+  const o = parseFloat(out);
+  if (!a || !o) return "—";
+  const r = o / a;
+  if (r >= 1000) return r.toLocaleString("en-US", { maximumFractionDigits: 2 });
+  if (r >= 1) return r.toLocaleString("en-US", { maximumFractionDigits: 4 });
+  return r.toFixed(6);
+}
 
 export default function SwapBox({ wallet }: { wallet: WalletState }) {
   const [pairId, setPairId] = useState<string>(KNOWN_PAIRS[0].id);
@@ -43,8 +66,15 @@ export default function SwapBox({ wallet }: { wallet: WalletState }) {
   const useCustom = pairId === "custom";
   const model: AmmoraSwapModel = useCustom ? customModel : (pair?.model ?? "dbc");
   const pool: Address | "" = useCustom ? (customPool as Address) : (pair?.pool ?? "");
-  const tokenIn = direction === "ab" ? (useCustom ? pair?.tokenA : pair?.tokenA) : pair?.tokenB;
+  const tokenIn = direction === "ab" ? pair?.tokenA : pair?.tokenB;
   const tokenOut = direction === "ab" ? pair?.tokenB : pair?.tokenA;
+
+  // A quote belongs to the exact inputs that produced it — clear it when they change.
+  useEffect(() => {
+    setQuote(null);
+  }, [pairId, direction, amount, slippageBps, customPool, customModel]);
+
+  const flip = useCallback(() => setDirection((d) => (d === "ab" ? "ba" : "ab")), []);
 
   const getQuote = useCallback(async () => {
     setError(null);
@@ -168,112 +198,212 @@ export default function SwapBox({ wallet }: { wallet: WalletState }) {
   const inTok = direction === "ab" ? pair?.tokenA : pair?.tokenB;
   const outTok = direction === "ab" ? pair?.tokenB : pair?.tokenA;
 
+  const inIsWeth = inTok?.symbol === "WETH";
+  const wethBalance = wallet.wethBalance !== null ? fmtUnits(wallet.wethBalance, 18) : null;
+
+  const setMax = useCallback(() => {
+    if (wethBalance !== null) setAmount(wethBalance);
+  }, [wethBalance]);
+
+  const connectViaHeader = useCallback(() => {
+    document.getElementById("header-wallet-btn")?.click();
+  }, []);
+
+  const quoteOut = quote && outTok ? fmtUnits(quote.expectedAmountOut, outTok.decimals) : null;
+
+  const cta = !wallet.address
+    ? { label: "Connect Wallet", onClick: connectViaHeader, disabled: false }
+    : !quote
+      ? { label: quoting ? "Getting quote…" : "Get Quote", onClick: getQuote, disabled: quoting }
+      : {
+          label: swapping ? "Waiting for your wallet…" : `Swap ${inTok?.symbol} for ${outTok?.symbol}`,
+          onClick: swap,
+          disabled: swapping,
+        };
+
   return (
-    <section className="card">
-      <h2>2 · Swap — read-only quote</h2>
-      <p className="dim small">
-        Quote via <code>AmmoraRouteClient.quoteExactIn</code> (the call from ammora-examples
-        src/routing/quote-exact-in.ts). Quote only — no approve, no swap, no send. Slippage 50 bps · recipient = your
-        connected wallet. If there is no route for this pair, the quote fails and no price is shown — that is honest,
-        not a bug.
-      </p>
-
-      <label>
-        Pair:{" "}
-        <select value={pairId} onChange={(e) => setPairId(e.target.value)}>
-          {KNOWN_PAIRS.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.label}
-            </option>
-          ))}
-          <option value="custom">Custom pool…</option>
-        </select>
-      </label>
-
-      {useCustom && (
-        <div className="row" style={{ marginTop: 8 }}>
-          <label>
-            Pool model:{" "}
-            <select value={customModel} onChange={(e) => setCustomModel(e.target.value as AmmoraSwapModel)}>
-              <option value="dbc">dbc (bonding curve)</option>
-              <option value="concentrated">concentrated</option>
-              <option value="almm">almm</option>
-              <option value="compounding">compounding</option>
-            </select>
-          </label>
-          <label>
-            Pool / curve address:{" "}
-            <input
-              value={customPool}
-              onChange={(e) => setCustomPool(e.target.value)}
-              placeholder="0x…"
-              style={{ width: 380 }}
-            />
-          </label>
+    <div className="swap-wrap">
+      <div className="swap-card">
+        <div className="swap-head">
+          <h2>Swap</h2>
+          <span className="badge badge-dim">Ammora · auto-route</span>
         </div>
-      )}
 
-      <div className="row" style={{ marginTop: 8 }}>
-        <label>
-          You pay:{" "}
-          <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" style={{ width: 110 }} />{" "}
-          {inTok?.symbol}
-        </label>
-        <button onClick={() => setDirection((d) => (d === "ab" ? "ba" : "ab"))} title="Flip direction">
-          ⇄ {inTok?.symbol} → {outTok?.symbol}
-        </button>
-        <label>
-          Slippage:{" "}
-          <input
-            type="number"
-            value={slippageBps}
-            onChange={(e) => setSlippageBps(Number(e.target.value))}
-            style={{ width: 70 }}
-          />{" "}
-          bps
-        </label>
-        <button onClick={getQuote} disabled={quoting}>
-          {quoting ? "Quoting…" : "Get quote"}
-        </button>
-      </div>
-
-      {pair && <p className="dim small">{pair.note}</p>}
-
-      {quote && outTok && (
-        <div className="quote">
-          <p>
-            You receive ≈ <b>{fmtUnits(quote.expectedAmountOut, outTok.decimals)}</b> {outTok.symbol}
-          </p>
-          <p>
-            Minimum (after {quote.slippageBps} bps slippage):{" "}
-            <b>{fmtUnits(quote.minimumAmountOut, outTok.decimals)}</b> {outTok.symbol}
-          </p>
-          <p>
-            Price impact: {quote.priceImpactBps !== null ? `${quote.priceImpactBps} bps` : "n/a"}
-            {" · "}Route: {quote.hops.map((h) => `${h.model} ${shortAddress(h.pool)}`).join(" → ")}
-          </p>
-          <div className="row">
-            <button onClick={swap} disabled={swapping || !wallet.address}>
-              {swapping ? "Waiting for your wallet…" : "Swap (you sign in your wallet)"}
+        <div className="pair-tabs" role="tablist" aria-label="Swap pair">
+          {KNOWN_PAIRS.map((p) => (
+            <button
+              key={p.id}
+              className={`pair-tab${pairId === p.id ? " active" : ""}`}
+              onClick={() => setPairId(p.id)}
+            >
+              {p.tokenA.symbol} ↔ {p.tokenB.symbol}
             </button>
-            {!wallet.address && <span className="dim small">Connect a wallet above to swap.</span>}
+          ))}
+          <button
+            className={`pair-tab${useCustom ? " active" : ""}`}
+            onClick={() => setPairId("custom")}
+          >
+            Custom
+          </button>
+        </div>
+
+        {useCustom && (
+          <div className="custom-panel">
+            <label>
+              Pool model
+              <select value={customModel} onChange={(e) => setCustomModel(e.target.value as AmmoraSwapModel)}>
+                <option value="dbc">dbc (bonding curve)</option>
+                <option value="concentrated">concentrated</option>
+                <option value="almm">almm</option>
+                <option value="compounding">compounding</option>
+              </select>
+            </label>
+            <label>
+              Pool / curve address
+              <input value={customPool} onChange={(e) => setCustomPool(e.target.value)} placeholder="0x…" />
+            </label>
+          </div>
+        )}
+
+        {/* You pay */}
+        <div className="swap-field">
+          <div className="swap-field-label">
+            <span>You pay</span>
+            <span className="swap-field-balance">
+              {wallet.address && inIsWeth && wethBalance !== null ? (
+                <>
+                  Balance: {wethBalance} WETH{" "}
+                  <button className="btn-mini" onClick={setMax} type="button">
+                    MAX
+                  </button>
+                </>
+              ) : (
+                <span>&nbsp;</span>
+              )}
+            </span>
+          </div>
+          <div className="swap-field-body">
+            <input
+              className="swap-amount"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              inputMode="decimal"
+              placeholder="0.0"
+              aria-label="Amount to pay"
+            />
+            {inTok && (
+              <button className="token-chip" onClick={flip} title="Switch direction" type="button">
+                <span className={`token-icon ${tokenIconClass(inTok.symbol)}`}>{tokenGlyph(inTok.symbol)}</span>
+                {inTok.symbol}
+                <span className="chev">▾</span>
+              </button>
+            )}
           </div>
         </div>
-      )}
 
-      {txs.length > 0 && (
-        <div>
-          {txs.map((t) => (
-            <p key={t.hash} className="ok">
-              {t.label}:{" "}
-              <a href={explorerTx(t.hash)} target="_blank" rel="noreferrer">
-                {shortAddress(t.hash)}
-              </a>
-            </p>
-          ))}
+        <div className="flip-row">
+          <button className="flip-btn" onClick={flip} title="Switch direction" type="button" aria-label="Switch swap direction">
+            ↓
+          </button>
         </div>
-      )}
-      {error && <p className="err">{error}</p>}
-    </section>
+
+        {/* You receive */}
+        <div className="swap-field">
+          <div className="swap-field-label">
+            <span>You receive</span>
+            <span>{quote && inTok && outTok ? `1 ${inTok.symbol} = ${fmtRate(quoteOut ?? "0", amount)} ${outTok.symbol}` : <span>&nbsp;</span>}</span>
+          </div>
+          <div className="swap-field-body">
+            <div className={`swap-amount-output${quoteOut === null ? " dimmed" : ""}`}>
+              {quoting ? "…" : (quoteOut ?? "0.0")}
+            </div>
+            {outTok && (
+              <button className="token-chip" onClick={flip} title="Switch direction" type="button">
+                <span className={`token-icon ${tokenIconClass(outTok.symbol)}`}>{tokenGlyph(outTok.symbol)}</span>
+                {outTok.symbol}
+                <span className="chev">▾</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Slippage */}
+        <div className="swap-slippage">
+          <span>Slippage tolerance</span>
+          <span className="slippage-chips">
+            {SLIPPAGE_PRESETS.map((bps) => (
+              <button
+                key={bps}
+                className={`slippage-chip${slippageBps === bps ? " active" : ""}`}
+                onClick={() => setSlippageBps(bps)}
+                type="button"
+              >
+                {(bps / 100).toFixed(1)}%
+              </button>
+            ))}
+          </span>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <input
+              className="slippage-input"
+              type="number"
+              value={slippageBps}
+              onChange={(e) => setSlippageBps(Number(e.target.value))}
+              aria-label="Slippage in basis points"
+            />
+            <span>bps</span>
+          </span>
+        </div>
+
+        {/* Details */}
+        {quote && outTok && (
+          <div className="swap-details">
+            <div className="swap-details-row">
+              <span className="k">You receive ≈</span>
+              <span className="v">
+                <b>{quoteOut}</b> {outTok.symbol}
+              </span>
+            </div>
+            <div className="swap-details-row">
+              <span className="k">Minimum received</span>
+              <span className="v">
+                {fmtUnits(quote.minimumAmountOut, outTok.decimals)} {outTok.symbol} (after {quote.slippageBps}{" "}
+                bps slippage)
+              </span>
+            </div>
+            <div className="swap-details-row">
+              <span className="k">Price impact</span>
+              <span className="v">{quote.priceImpactBps !== null ? `${quote.priceImpactBps} bps` : "n/a"}</span>
+            </div>
+            <div className="swap-details-row">
+              <span className="k">Route</span>
+              <span className="v">{quote.hops.map((h) => `${h.model} ${shortAddress(h.pool)}`).join(" → ")}</span>
+            </div>
+          </div>
+        )}
+
+        {/* CTA */}
+        <div className="swap-cta-wrap">
+          <button className="btn-primary" onClick={cta.onClick} disabled={cta.disabled}>
+            {cta.label}
+          </button>
+        </div>
+
+        {pair && !quote && <p className="swap-note">{pair.note}</p>}
+
+        {txs.length > 0 && (
+          <div className="swap-txs">
+            {txs.map((t) => (
+              <p key={t.hash} className="ok" style={{ margin: "4px 0" }}>
+                {t.label}:{" "}
+                <a href={explorerTx(t.hash)} target="_blank" rel="noreferrer">
+                  {shortAddress(t.hash)}
+                </a>
+              </p>
+            ))}
+          </div>
+        )}
+        {error && <div className="swap-error">{error}</div>}
+      </div>
+    </div>
   );
 }

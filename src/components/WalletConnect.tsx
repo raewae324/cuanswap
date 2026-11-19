@@ -28,9 +28,11 @@ export interface WalletState {
 export default function WalletConnect({
   wallet,
   onChange,
+  variant,
 }: {
   wallet: WalletState;
   onChange: (w: WalletState) => void;
+  variant: "header" | "panel";
 }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -118,67 +120,115 @@ export default function WalletConnect({
 
   const wrongChain = wallet.address !== null && wallet.chainId !== null && wallet.chainId !== CHAIN_ID;
 
+  if (variant === "header") {
+    if (!wallet.address) {
+      return (
+        <span style={{ position: "relative", display: "inline-flex" }}>
+          <button id="header-wallet-btn" className="btn-connect" onClick={connect} disabled={busy}>
+            {busy ? "Connecting…" : "Connect Wallet"}
+          </button>
+          {error && (
+            <span
+              className="err"
+              style={{
+                position: "absolute",
+                top: "calc(100% + 8px)",
+                right: 0,
+                width: 260,
+                background: "var(--card)",
+                border: "1px solid rgba(255,92,92,0.4)",
+                borderRadius: 12,
+                padding: "10px 12px",
+                fontSize: 12.5,
+                lineHeight: 1.5,
+                boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+                zIndex: 60,
+              }}
+            >
+              {error}
+            </span>
+          )}
+        </span>
+      );
+    }
+    return (
+      <button
+        className="btn-wallet"
+        onClick={connect}
+        title={wrongChain ? `Wrong chain (${wallet.chainId}) — click to switch to GIWA Sepolia 91342` : "Click to switch / reconnect"}
+      >
+        <span className="wallet-dot" />
+        {shortAddress(wallet.address)}
+        {wrongChain && <span className="warn">· wrong chain</span>}
+      </button>
+    );
+  }
+
+  // Panel variant: balances + wrap, shown under the swap card. Hidden until connected.
+  if (!wallet.address) {
+    return error ? (
+      <div className="wallet-panel">
+        <div className="callout callout-err">{error}</div>
+      </div>
+    ) : null;
+  }
+
   return (
-    <section className="card">
-      <h2>1 · Wallet <span className="dim">(GIWA Sepolia only)</span></h2>
-      {wallet.address ? (
-        <div>
-          <p>
-            Connected:{" "}
+    <div className="wallet-panel">
+      <div className="card">
+        <div className="row" style={{ justifyContent: "space-between", margin: "0 0 8px" }}>
+          <b style={{ fontSize: 15 }}>
             <a href={explorerAddress(wallet.address)} target="_blank" rel="noreferrer">
               {shortAddress(wallet.address)}
             </a>
-            {wrongChain && (
-              <span className="warn"> — wrong chain ({wallet.chainId}). Switch to GIWA Sepolia 91342.</span>
-            )}
-          </p>
-          <p>
-            ETH: <b>{wallet.ethBalance !== null ? fmtUnits(wallet.ethBalance, 18) : "…"}</b>
-            {" · "}WETH: <b>{wallet.wethBalance !== null ? fmtUnits(wallet.wethBalance, 18) : "…"}</b>
-          </p>
-          <div className="row">
-            <button onClick={() => wallet.address && refresh(wallet.address)}>Refresh balances</button>
-            <button onClick={connect} disabled={busy}>
-              {busy ? "…" : "Switch / reconnect"}
-            </button>
-          </div>
-          <div className="row" style={{ marginTop: 8 }}>
-            <label>
-              Wrap ETH → WETH:{" "}
-              <input
-                value={wrapAmount}
-                onChange={(e) => setWrapAmount(e.target.value)}
-                inputMode="decimal"
-                style={{ width: 90 }}
-              />{" "}
-              ETH
-            </label>
-            <button onClick={wrap} disabled={busy || !wallet.address}>
-              {busy ? "…" : "Wrap (you sign in wallet)"}
-            </button>
-          </div>
-          {wrapTx && (
-            <p className="ok">
-              Wrapped — tx{" "}
-              <a href={`https://sepolia-explorer.giwa.io/tx/${wrapTx}`} target="_blank" rel="noreferrer">
-                {shortAddress(wrapTx)}
-              </a>
-            </p>
-          )}
-        </div>
-      ) : (
-        <div>
-          <p>No wallet connected yet. Connect MetaMask / Rabby — the app will switch (or add) GIWA Sepolia 91342.</p>
-          <button onClick={connect} disabled={busy}>
-            {busy ? "Connecting…" : "Connect wallet"}
+          </b>
+          <button className="btn" onClick={() => wallet.address && refresh(wallet.address)}>
+            Refresh
           </button>
         </div>
-      )}
-      {error && <p className="err">{error}</p>}
-      <p className="dim small">
-        CuanSwap never asks for a seed phrase or private key. Every transaction is built here and signed by you in
-        your own wallet.
-      </p>
-    </section>
+        {wrongChain && (
+          <div className="callout callout-warn">
+            Wrong chain ({wallet.chainId}). Switch to GIWA Sepolia 91342 to swap or launch.
+          </div>
+        )}
+        <div className="wallet-balances">
+          <div className="wallet-balance">
+            <div className="k">ETH</div>
+            <div className="v">{wallet.ethBalance !== null ? fmtUnits(wallet.ethBalance, 18) : "…"}</div>
+          </div>
+          <div className="wallet-balance">
+            <div className="k">WETH</div>
+            <div className="v">{wallet.wethBalance !== null ? fmtUnits(wallet.wethBalance, 18) : "…"}</div>
+          </div>
+        </div>
+        <div className="row" style={{ margin: 0 }}>
+          <label style={{ margin: 0 }}>
+            Wrap ETH → WETH{" "}
+            <input
+              value={wrapAmount}
+              onChange={(e) => setWrapAmount(e.target.value)}
+              inputMode="decimal"
+              style={{ width: 90 }}
+            />
+          </label>
+          <button className="btn" onClick={wrap} disabled={busy || !wallet.address}>
+            {busy ? "…" : "Wrap (you sign)"}
+          </button>
+        </div>
+        {wrapTx && (
+          <p className="ok small" style={{ margin: "8px 0 0" }}>
+            Wrapped — tx{" "}
+            <a href={`https://sepolia-explorer.giwa.io/tx/${wrapTx}`} target="_blank" rel="noreferrer">
+              {shortAddress(wrapTx)}
+            </a>
+          </p>
+        )}
+        {error && <p className="err small" style={{ margin: "8px 0 0" }}>{error}</p>}
+        <p className="wallet-note">
+          CuanSwap never asks for a seed phrase or private key. Every transaction is built here and signed by you in
+          your own wallet.
+        </p>
+      </div>
+    </div>
   );
 }

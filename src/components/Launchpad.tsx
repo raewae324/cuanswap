@@ -5,7 +5,6 @@ import {
   BLOCKED_CONFIG_ID,
   CHAIN_ID,
   CURVE_STATUS_LABEL,
-  DEFAULT_CONFIG_ID,
   DEFAULT_GRADUATION_TARGET_WETH,
   GIWA_SEPOLIA,
   buildCreateLaunchPreview,
@@ -26,11 +25,11 @@ import type { WalletState } from "./WalletConnect";
 import { resolveAmmoraFinalizedHead, giwaSepoliaAutoRoute } from "@ammora-protocol/sdk";
 
 const STEPS = [
-  "Config — reusable, immutable: supply, curve, fees, graduation, LP allocation.",
-  "Issue token — createLaunch creates a new token + pre-graduation ALC curve together.",
-  "Trade on ALC — buy / sell on the bonding curve until the graduation threshold is hit.",
-  "Graduation — final buy → ReadyToMigrate, then a separate migration tx → post-graduation ARL concentrated pool.",
-  "Claim fees — Creator and Partner claim separately from the FeeVault; LP NFT owner claims LP fees.",
+  { title: "Config", text: "Reusable, immutable: supply, curve, fees, graduation, LP allocation." },
+  { title: "Issue token", text: "createLaunch creates a new token + pre-graduation ALC curve together." },
+  { title: "Trade on ALC", text: "Buy / sell on the bonding curve until the graduation threshold is hit." },
+  { title: "Graduation", text: "Final buy → ReadyToMigrate, then a separate migration tx → post-graduation ARL concentrated pool." },
+  { title: "Claim fees", text: "Creator and Partner claim separately from the FeeVault; LP NFT owner claims LP fees." },
 ];
 
 export default function Launchpad({ wallet }: { wallet: WalletState }) {
@@ -43,7 +42,10 @@ export default function Launchpad({ wallet }: { wallet: WalletState }) {
   const [name, setName] = useState("Cuan Token");
   const [symbol, setSymbol] = useState("CUAN");
   const [metadataURI, setMetadataURI] = useState("ipfs://example/cuan-metadata.json");
-  const [createConfigId, setCreateConfigId] = useState(String(DEFAULT_CONFIG_ID));
+  // Default create Config: #1 — Config #7 (the old default) was disabled
+  // on-chain after the first build, so the preview now rejects it. #1 is
+  // enabled with the same migrationMode 0 profile. #6 stays hard-blocked.
+  const [createConfigId, setCreateConfigId] = useState("1");
   const [preview, setPreview] = useState<CreateLaunchPreview | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
   const [sendBusy, setSendBusy] = useState(false);
@@ -201,154 +203,181 @@ export default function Launchpad({ wallet }: { wallet: WalletState }) {
       : null;
 
   return (
-    <section className="card">
-      <h2>3 · Launchpad — Config → issue → trade → graduation</h2>
-      <ol className="small">
-        {STEPS.map((s) => (
-          <li key={s}>{s}</li>
+    <div>
+      <ol className="steps">
+        {STEPS.map((s, i) => (
+          <li key={s.title}>
+            <span className="step-num">{i + 1}</span>
+            <b>{s.title}</b>
+            {s.text}
+          </li>
         ))}
       </ol>
 
-      <h3>Configs (read from chain)</h3>
-      <div className="row">
-        <button onClick={loadConfigs} disabled={configsLoading}>
-          {configsLoading ? "Reading…" : "Refresh Configs"}
-        </button>
-        <span className="dim small">
-          Config #6 is blocked (graduation bug, disabled on-chain) and is never offered for new launches.
-        </span>
-      </div>
-      {configsError && <p className="err">{configsError}</p>}
-      {configs.length > 0 && (
-        <table>
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Enabled</th>
-              <th>Quote token</th>
-              <th>Migration</th>
-              <th>Owner</th>
-            </tr>
-          </thead>
-          <tbody>
-            {configs.map((c) => (
-              <tr key={c.configId.toString()} className={c.configId === BLOCKED_CONFIG_ID ? "blocked" : ""}>
-                <td>{c.configId.toString()}</td>
-                <td>{c.enabled ? "yes" : "NO"}</td>
-                <td>{shortAddress(c.quoteToken)}</td>
-                <td>{c.migrationMode}</td>
-                <td>{shortAddress(c.owner)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-      <div className="row" style={{ marginTop: 8 }}>
-        <label>
-          Read a Config by ID:{" "}
-          <input value={configIdInput} onChange={(e) => setConfigIdInput(e.target.value)} style={{ width: 70 }} />
-        </label>
-        <button onClick={readOneConfig}>Read Config</button>
-      </div>
-      {configDetail && <pre>{configDetail}</pre>}
-
-      <h3>Create-token preview (does NOT broadcast)</h3>
-      <div className="grid2">
-        <label>
-          Token name: <input value={name} onChange={(e) => setName(e.target.value)} />
-        </label>
-        <label>
-          Token symbol: <input value={symbol} onChange={(e) => setSymbol(e.target.value)} />
-        </label>
-        <label>
-          Metadata URI: <input value={metadataURI} onChange={(e) => setMetadataURI(e.target.value)} />
-        </label>
-        <label>
-          Config ID to use:{" "}
-          <input value={createConfigId} onChange={(e) => setCreateConfigId(e.target.value)} style={{ width: 80 }} />
-          <span className="dim small"> (default {DEFAULT_CONFIG_ID.toString()}; #6 blocked)</span>
-        </label>
-      </div>
-      <p className="dim small">
-        Default graduation target: {DEFAULT_GRADUATION_TARGET_WETH} WETH net quote reserve. Creating a real token
-        needs the Creator wallet to sign createLaunch with GIWA test ETH for gas — that send step is a separate,
-        explicit button below, confirmed by you in your wallet.
-      </p>
-      <div className="row">
-        <button onClick={buildPreview} disabled={previewBusy}>
-          {previewBusy ? "Building preview…" : "Build preview"}
-        </button>
-      </div>
-      {preview && (
-        <div className="quote">
-          <p>
-            <b>Preview — nothing broadcast yet.</b>
-          </p>
-          <p>
-            To (launch factory): <code>{shortAddress(preview.to)}</code>
-          </p>
-          <p>
-            Config #{preview.configId.toString()} · hash <code>{shortAddress(preview.configHash)}</code>
-          </p>
-          <p>
-            Pool creation fee: {fmtUnits(preview.poolCreationFee, 18)} ETH · token decimals: {preview.tokenDecimals}
-          </p>
-          <p>
-            Value: {fmtUnits(preview.value, 18)} ETH · calldata: {preview.data.length / 2 - 1} bytes
-          </p>
-          <div className="row">
-            <button onClick={sendCreate} disabled={sendBusy || !wallet.address}>
-              {sendBusy ? "Waiting for your wallet…" : "Sign & send createLaunch (you confirm in wallet)"}
-            </button>
-            {!wallet.address && <span className="dim small">Connect a wallet above to send.</span>}
+      <div className="subsection">
+        <h3>Configs — read from chain</h3>
+        <p className="sub">Reusable launch settings. Config #6 is blocked (graduation bug, disabled on-chain) and is never offered for new launches.</p>
+        <div className="row" style={{ margin: "0 0 14px" }}>
+          <button className="btn" onClick={loadConfigs} disabled={configsLoading}>
+            {configsLoading ? "Reading…" : "Refresh Configs"}
+          </button>
+        </div>
+        {configsError && <div className="callout callout-err">{configsError}</div>}
+        {configs.length > 0 && (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Status</th>
+                  <th>Quote token</th>
+                  <th>Migration</th>
+                  <th>Owner</th>
+                </tr>
+              </thead>
+              <tbody>
+                {configs.map((c) => (
+                  <tr key={c.configId.toString()} className={c.configId === BLOCKED_CONFIG_ID ? "blocked" : ""}>
+                    <td>
+                      <b>#{c.configId.toString()}</b>
+                      {c.configId === BLOCKED_CONFIG_ID && <span className="badge badge-warn" style={{ marginLeft: 8 }}>Blocked</span>}
+                    </td>
+                    <td>
+                      {c.enabled ? (
+                        <span className="badge badge-ok">Enabled</span>
+                      ) : (
+                        <span className="badge badge-err">Disabled</span>
+                      )}
+                    </td>
+                    <td>{shortAddress(c.quoteToken)}</td>
+                    <td>{c.migrationMode}</td>
+                    <td>{shortAddress(c.owner)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-          {sendTx && (
-            <p className="ok">
-              createLaunch sent:{" "}
-              <a href={explorerTx(sendTx)} target="_blank" rel="noreferrer">
-                {shortAddress(sendTx)}
-              </a>
-            </p>
+        )}
+        <div className="row" style={{ marginTop: 14 }}>
+          <label style={{ margin: 0 }}>
+            Read a Config by ID{" "}
+            <input value={configIdInput} onChange={(e) => setConfigIdInput(e.target.value)} style={{ width: 80 }} />
+          </label>
+          <button className="btn" onClick={readOneConfig}>Read Config</button>
+        </div>
+        {configDetail && <pre>{configDetail}</pre>}
+      </div>
+
+      <div className="subsection">
+        <h3>Create a token</h3>
+        <p className="sub">
+          Preview only — nothing is broadcast until you explicitly sign &amp; send. Default graduation target:{" "}
+          {DEFAULT_GRADUATION_TARGET_WETH} WETH net quote reserve.
+        </p>
+        <div className="launch-form">
+          <div className="grid2">
+            <label>
+              Token name
+              <input value={name} onChange={(e) => setName(e.target.value)} />
+            </label>
+            <label>
+              Token symbol
+              <input value={symbol} onChange={(e) => setSymbol(e.target.value)} />
+            </label>
+            <label>
+              Metadata URI
+              <input value={metadataURI} onChange={(e) => setMetadataURI(e.target.value)} />
+            </label>
+            <label>
+              Config ID to use
+              <input value={createConfigId} onChange={(e) => setCreateConfigId(e.target.value)} />
+              <span className="dim small"> (default 1; #6 blocked, #7–#9 disabled on-chain)</span>
+            </label>
+          </div>
+          <div className="row" style={{ margin: "14px 0 0" }}>
+            <button className="btn" onClick={buildPreview} disabled={previewBusy}>
+              {previewBusy ? "Building preview…" : "Build preview"}
+            </button>
+          </div>
+          {preview && (
+            <div className="quote">
+              <p>
+                <b>Preview — nothing broadcast yet.</b>
+              </p>
+              <p>
+                To (launch factory): <code>{shortAddress(preview.to)}</code>
+              </p>
+              <p>
+                Config #{preview.configId.toString()} · hash <code>{shortAddress(preview.configHash)}</code>
+              </p>
+              <p>
+                Pool creation fee: {fmtUnits(preview.poolCreationFee, 18)} ETH · token decimals: {preview.tokenDecimals}
+              </p>
+              <p>
+                Value: {fmtUnits(preview.value, 18)} ETH · calldata: {preview.data.length / 2 - 1} bytes
+              </p>
+              <div className="row" style={{ marginTop: 10 }}>
+                <button className="btn-primary" style={{ maxWidth: 420 }} onClick={sendCreate} disabled={sendBusy || !wallet.address}>
+                  {sendBusy ? "Waiting for your wallet…" : "Sign & send createLaunch"}
+                </button>
+                {!wallet.address && <span className="dim small">Connect a wallet above to send.</span>}
+              </div>
+              {sendTx && (
+                <p className="ok">
+                  createLaunch sent:{" "}
+                  <a href={explorerTx(sendTx)} target="_blank" rel="noreferrer">
+                    {shortAddress(sendTx)}
+                  </a>
+                </p>
+              )}
+            </div>
           )}
         </div>
-      )}
-
-      <h3>Graduation progress (read a curve)</h3>
-      <div className="row">
-        <label>
-          Curve address:{" "}
-          <input value={curveAddr} onChange={(e) => setCurveAddr(e.target.value)} style={{ width: 380 }} />
-        </label>
-        <button onClick={readCurve} disabled={curveBusy}>
-          {curveBusy ? "Reading…" : "Read curve"}
-        </button>
       </div>
-      {curveError && <p className="err">{curveError}</p>}
-      {curveState && (
-        <div className="quote">
-          <p>
-            Status: <b>{CURVE_STATUS_LABEL[curveState.status] ?? `status ${curveState.status}`}</b> · Config #
-            {curveState.configId.toString()}
-          </p>
-          <p>
-            Base: <code>{shortAddress(curveState.baseToken)}</code> · Quote:{" "}
-            <code>{shortAddress(curveState.quoteToken)}</code>
-          </p>
-          <p>
-            Quote reserve: {fmtUnits(curveState.quoteReserve, 18)} WETH / threshold{" "}
-            {fmtUnits(curveState.migrationQuoteThreshold, 18)} WETH
-            {progress !== null && ` — ${progress.toFixed(2)}%`}
-          </p>
-          <div className="bar">
-            <div style={{ width: `${Math.min(100, progress ?? 0)}%` }} />
-          </div>
-          <p className="dim small">
-            Progress is quoteReserve ÷ the Config&apos;s migrationQuoteThreshold. Default graduation target for new
-            launches: {DEFAULT_GRADUATION_TARGET_WETH} WETH net quote reserve.
-          </p>
+
+      <div className="subsection">
+        <h3>Graduation progress</h3>
+        <p className="sub">Read a bonding curve&apos;s progress toward its migration threshold.</p>
+        <div className="row" style={{ margin: 0 }}>
+          <label style={{ margin: 0 }}>
+            Curve address{" "}
+            <input value={curveAddr} onChange={(e) => setCurveAddr(e.target.value)} style={{ width: 360 }} />
+          </label>
+          <button className="btn" onClick={readCurve} disabled={curveBusy}>
+            {curveBusy ? "Reading…" : "Read curve"}
+          </button>
         </div>
-      )}
-      {error && <p className="err">{error}</p>}
-    </section>
+        {curveError && <div className="callout callout-err">{curveError}</div>}
+        {curveState && (
+          <div className="quote">
+            <p>
+              Status:{" "}
+              <span className={`badge ${curveState.status === 1 ? "badge-ok" : "badge-dim"}`}>
+                {CURVE_STATUS_LABEL[curveState.status] ?? `status ${curveState.status}`}
+              </span>{" "}
+              · Config #{curveState.configId.toString()}
+            </p>
+            <p>
+              Base: <code>{shortAddress(curveState.baseToken)}</code> · Quote:{" "}
+              <code>{shortAddress(curveState.quoteToken)}</code>
+            </p>
+            <p>
+              Quote reserve: <b>{fmtUnits(curveState.quoteReserve, 18)} WETH</b> / threshold{" "}
+              {fmtUnits(curveState.migrationQuoteThreshold, 18)} WETH
+              {progress !== null && ` — ${progress.toFixed(2)}%`}
+            </p>
+            <div className="bar">
+              <div style={{ width: `${Math.min(100, progress ?? 0)}%` }} />
+            </div>
+            <p className="dim small">
+              Progress is quoteReserve ÷ the Config&apos;s migrationQuoteThreshold. Default graduation target for new
+              launches: {DEFAULT_GRADUATION_TARGET_WETH} WETH net quote reserve.
+            </p>
+          </div>
+        )}
+      </div>
+
+      {error && <div className="callout callout-err" style={{ marginTop: 20 }}>{error}</div>}
+    </div>
   );
 }
